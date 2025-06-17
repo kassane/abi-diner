@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
     const cZig = b.option(bool, "cZig", "") orelse false;
     const cC = b.option(bool, "cC", "") orelse false;
     const cCpp = b.option(bool, "cCpp", "") orelse false;
+    const cD = b.option(bool, "cD", "") orelse false;
     const cRust = b.option(bool, "cRust", "") orelse false;
     const cAll = b.option(bool, "cAll", "") orelse false;
 
@@ -66,6 +67,19 @@ pub fn build(b: *std.Build) void {
     };
     _ = &toolchain_cpp;
 
+    const toolchain_d: Toolchain = .{
+        .lang = .d,
+        .gen = b.addExecutable(.{
+            .name = "gen_d",
+            .root_source_file = b.path("./d.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
+        .basename = "stdout.d",
+        .supportsTag = @import("./d.zig").supportsTag,
+    };
+    _ = &toolchain_d;
+
     const toolchain_rust: Toolchain = .{
         .lang = .rust,
         .gen = b.addExecutable(.{
@@ -83,6 +97,7 @@ pub fn build(b: *std.Build) void {
         toolchain_zig,
         toolchain_c,
         toolchain_cpp,
+        toolchain_d,
         toolchain_rust,
     };
 
@@ -90,6 +105,7 @@ pub fn build(b: *std.Build) void {
     if (cZig) toolchains.appendAssumeCapacity(toolchain_zig);
     if (cC) toolchains.appendAssumeCapacity(toolchain_c);
     if (cCpp) toolchains.appendAssumeCapacity(toolchain_cpp);
+    if (cD) toolchains.appendAssumeCapacity(toolchain_d);
     if (cRust) toolchains.appendAssumeCapacity(toolchain_rust);
     if (cAll) toolchains.appendSliceAssumeCapacity(&toolchains_all);
 
@@ -122,6 +138,8 @@ pub fn build(b: *std.Build) void {
                     _ = &is_c;
                     const is_cpp = caller_toolchain.lang == .cpp or callee_toolchain.lang == .cpp;
                     _ = &is_cpp;
+                    const is_d = caller_toolchain.lang == .d or callee_toolchain.lang == .d;
+                    _ = &is_d;
                     const is_rust = caller_toolchain.lang == .rust or callee_toolchain.lang == .rust;
                     _ = &is_rust;
 
@@ -131,6 +149,7 @@ pub fn build(b: *std.Build) void {
 
                         if ((is_c and is_zig) and (i == .u128 or i == .i128)) continue;
                         if ((is_c and is_cpp) and (i == .u128 or i == .i128)) continue;
+                        if ((is_c and is_d) and (i == .u128 or i == .i128)) continue;
                         if ((is_c and is_rust) and (i == .u128 or i == .i128)) continue;
 
                         var arg_list_head = ArgList{ .data = &i };
@@ -153,6 +172,7 @@ const Toolchain = struct {
         zig,
         c,
         cpp,
+        d,
         rust,
     };
 };
@@ -179,6 +199,8 @@ fn genCombo(
     _ = &is_c;
     const is_cpp = caller_toolchain.lang == .cpp or callee_toolchain.lang == .cpp;
     _ = &is_cpp;
+    const is_d = caller_toolchain.lang == .d or callee_toolchain.lang == .d;
+    _ = &is_d;
     const is_rust = caller_toolchain.lang == .rust or callee_toolchain.lang == .rust;
     _ = &is_rust;
 
@@ -188,6 +210,7 @@ fn genCombo(
 
         if ((is_c and is_zig) and (i == .u128 or i == .i128)) continue;
         if ((is_c and is_cpp) and (i == .u128 or i == .i128)) continue;
+        if ((is_c and is_d) and (i == .u128 or i == .i128)) continue;
         if ((is_c and is_rust) and (i == .u128 or i == .i128)) continue;
 
         var arg_list_next = ArgList{ .data = &i };
@@ -289,6 +312,23 @@ fn addObject(exe: *std.Build.Step.Compile, toolchain: Toolchain, b: *std.Build, 
             obj.linkLibCpp();
             run_gen.captured_stdout.?.basename = toolchain.basename;
             exe.addObject(obj);
+        },
+        .d => {
+            const cmd = b.addSystemCommand(&.{"ldc2"});
+            cmd.addArgs(&.{"-c"});
+            cmd.addArg("-L-lc");
+            cmd.addArg("-g");
+            cmd.addArg("-betterC"); // no Druntime GC, no moduleinfo
+            switch (mode) {
+                .Debug => cmd.addArgs(&.{ "-O0", "--d-debug=1" }),
+                .ReleaseSafe => cmd.addArgs(&.{ "-O3", "--enable-asserts=y" }),
+                .ReleaseSmall => cmd.addArgs(&.{ "-Oz", "--release" }),
+                .ReleaseFast => cmd.addArgs(&.{ "-O3", "--release" }),
+            }
+            const output = cmd.addPrefixedOutputFileArg("-of=", name);
+            cmd.addFileArg(run_gen.captureStdOut());
+            run_gen.captured_stdout.?.basename = toolchain.basename;
+            exe.addObjectFile(output);
         },
         .rust => {
             const cmd = b.addSystemCommand(&.{"rustc"});

@@ -16,6 +16,7 @@ Inspired by https://github.com/Gankra/abi-cafe but leveraging the Zig Build Syst
 - [Zig](https://ziglang.org/)
 - [C](https://clang.llvm.org/)
 - [C++](https://clang.llvm.org/)
+- [D](https://dlang.org/) **ldc2** only
 - [Rust](https://www.rust-lang.org/)
 
 ## How It Works
